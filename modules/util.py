@@ -16,6 +16,19 @@ def show(img):
   plt.show()
 
 
+class MeanShift(nn.Conv2d):
+  def __init__(self, gpu_id):
+    super(MeanShift, self).__init__(3, 3, kernel_size=1)
+    rgb_range=1
+    rgb_mean=(0.4488, 0.4371, 0.4040)
+    rgb_std=(1.0, 1.0, 1.0)
+    sign=-1
+    std = torch.Tensor(rgb_std).to(gpu_id)
+    self.weight.data = torch.eye(3).view(3, 3, 1, 1).to(gpu_id) / std.view(3, 1, 1, 1)
+    self.bias.data = sign * rgb_range * torch.Tensor(rgb_mean).to(gpu_id) / std
+    for p in self.parameters():
+        p.requires_grad = False
+
 def numpy2tensor(np_array, gpu_id):
   gpu_id = "cpu"
   if len(np_array.shape) == 2:

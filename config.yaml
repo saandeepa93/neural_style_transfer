@@ -1,4 +1,7 @@
 params:
   b_size: 32
-  epochs: 300
+  epochs: 2000
   style_wt: 1000000
+  grad_wt: 7e2
+  lr: 0.1
+  img_size: 256

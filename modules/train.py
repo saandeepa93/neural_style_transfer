@@ -7,6 +7,7 @@ from sys import exit as e
 import torchvision.models as models
 from torchvision.utils import save_image
 import copy
+import numpy as np
 
 
 from modules.vgg import VGG, StyleLoss, Normalization
@@ -25,7 +26,7 @@ def image_loader(image_name):
 
 def get_input_optimizer(input_img):
   # this line to show that input is a parameter that requires a gradient
-  optimizer = optim.LBFGS([input_img.requires_grad_()])
+  optimizer = optim.LBFGS([input_img.requires_grad_()], lr = 0.1)
   return optimizer
 
 
@@ -72,28 +73,28 @@ def get_style_model_and_losses(cnn, cnn_normalization_mean, cnn_normalization_st
 
 def gram_minimization(configs):
 
-  # tank = image_loader("./input/tank.png").squeeze()
-  # tank_blended = image_loader("./input/tank_blended.png").squeeze()
-  # style_img = (tank * mask).unsqueeze(0)
-  # grad_img = (tank_blended * mask).unsqueeze(0)
-  # util.show(style_img.squeeze().permute(1, 2, 0).detach())
-  # util.show(grad_img.squeeze().permute(1, 2, 0).detach())
-  source_img = image_loader("./input/tank.png")
-  target_img = image_loader("./input/field.png")
-  mask_img = image_loader("./input/tank_mask.png").squeeze()
+  tank = image_loader("./input/tank.png").squeeze()
+  tank_blended = image_loader("./input/tank_blended.png").squeeze()
+  source_img = image_loader("./input/plane.png")
+  target_img = image_loader("./input/sky.png")
+  mask_img = image_loader("./input/mask_plane.png").squeeze()
+  # source_img = (tank_blended * mask_img).unsqueeze(0)
+  # target_img = (tank * mask_img).unsqueeze(0)
   gt_gradient = util.compute_gt_gradient(source_img, target_img, mask_img.detach().numpy(), None)
   input_img = torch.randn(target_img.shape)
   mask_img = mask_img.squeeze(0).repeat(3,1).view(3,source_img.size(2),source_img.size(3)).unsqueeze(0)
 
   content_layers_default = ['conv_4']
   style_layers_default = ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5']
-  grad_weight = 1e4
+  grad_weight = float(configs["params"]["grad_wt"])
   cnn = models.vgg19(pretrained=True).features.eval()
   cnn_normalization_mean = torch.tensor([0.485, 0.456, 0.406])
   cnn_normalization_std = torch.tensor([0.229, 0.224, 0.225])
   normalization = Normalization(cnn_normalization_mean, cnn_normalization_std)
+
   target_img = normalization(target_img)
-  print(target_img.size())
+  # mean_shift = util.MeanShift('cpu')
+  # target_img = mean_shift(target_img)
 
   # input_img = target_img.clone()
   # model, style_losses = get_style_model_and_losses(cnn, cnn_normalization_mean, \
@@ -101,49 +102,51 @@ def gram_minimization(configs):
   optimizer = get_input_optimizer(input_img)
   mse = torch.nn.MSELoss()
   run = [0]
-  # while True:
   while run[0] <= configs["params"]["epochs"]:
 
     def closure():
       blend_img = torch.zeros(target_img.shape)
       blend_img = input_img*mask_img + target_img*(mask_img-1)*(-1)
+
       pred_gradient = util.laplacian_filter_tensor(blend_img)
       grad_loss = 0
       for c in range(len(pred_gradient)):
           grad_loss += mse(pred_gradient[c], gt_gradient[c])
       grad_loss /= len(pred_gradient)
       grad_loss *= grad_weight
-      # input_img.data.clamp_(0, 1)
-      # optimizer.zero_grad()
-      # model(input_img)
-      # style_score = 0
 
-      # for sl in style_losses:
-      #   style_score += sl.loss
-
-      # style_score *= configs["params"]["style_wt"]
-
-      loss = style_score
+      loss = grad_loss
+      optimizer.zero_grad()
       loss.backward()
 
       run[0] += 1
       if run[0] % 10 == 0:
         print("run {}:".format(run))
-        print('Style Loss : {:4f}'.format(
-            style_score.item()))
+        print('Loss : {:4f}'.format(
+            loss.item()))
         print()
+        save_image(input_img.squeeze(), f"output/sample/{run[0]}.png")
 
-      # if style_score.item() < 30:
-      #   return style_score
-
-      return style_score
+      return loss
 
     optimizer.step(closure)
 
   # a last correction...
   input_img.data.clamp_(0, 1)
-  print(input_img.size())
-  save_image(input_img.squeeze(), "./output/transferred.png")
+  blend_img = torch.zeros(target_img.shape)
+  # blend_img_np = blend_img.transpose(1,3).transpose(1,2).data.numpy()[0]
+
+  invTrans = transforms.Compose([ transforms.Normalize(mean = [ 0., 0., 0. ],
+                                                     std = [ 1/0.229, 1/0.224, 1/0.225 ]),
+                                transforms.Normalize(mean = [ -0.485, -0.456, -0.406 ],
+                                                     std = [ 1., 1., 1. ]),
+                               ])
+  blend_img = input_img*mask_img + target_img*(mask_img-1)*(-1)
+  save_image(blend_img.squeeze(), "./output/blend_img_shift.png")
+  blend_img = invTrans(blend_img.squeeze()).unsqueeze(0)
+  save_image(input_img.squeeze(), "./output/input_img.png")
+  save_image(blend_img.squeeze(), "./output/blend_img_unshift.png")
+  # io.imsave("./output/blend_img_np.png", blend_img_np.astype(np.uint8))
 
 
 
