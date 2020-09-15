@@ -1,0 +1,4 @@
+params:
+  b_size: 32
+  epochs: 300
+  style_wt: 1000000
